@@ -64,10 +64,7 @@ if __name__ == '__main__':
     # communications
     for iteration in range(n_processes - 1):
         for i in range(n_processes):
-            if i == 0:
-                processes[n_processes - 1].collect(processes[i].buffer)
-            else:
-                processes[i - 1].collect(processes[i].buffer)
+            processes[i - 1].collect(processes[i].buffer)  # -1 python interpret as the last element of the array
 
     # calculate accelerations
     for process in processes:
