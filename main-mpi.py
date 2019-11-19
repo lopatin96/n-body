@@ -1,8 +1,9 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 import math
 import random
 import timeit
 import sys
+from mpi4py import MPI
 
 
 class Star:
@@ -20,7 +21,7 @@ class Star:
 
     def calculate_acceleration(self, stars):
         for star in stars:
-            if star != self:
+            if self.distance(star.r) != 0:
                 ax = (star.m / math.fabs(self.distance(star.r)) ** 3) * (star.r[0] - self.r[0])
                 ay = (star.m / math.fabs(self.distance(star.r)) ** 3) * (star.r[1] - self.r[1])
                 az = (star.m / math.fabs(self.distance(star.r)) ** 3) * (star.r[2] - self.r[2])
@@ -34,7 +35,7 @@ class Process:
         self.init_buffer()
 
     def get_buffer(self, penultimate=False):
-        return self.accumulator[-self.n*2 if penultimate else -self.n: -self.n if penultimate else None]
+        return self.accumulator[-self.n * 2 if penultimate else -self.n: -self.n if penultimate else None]
 
     def init_buffer(self):
         for i in range(self.n):
@@ -54,26 +55,41 @@ class Process:
 
 
 if __name__ == '__main__':
-    # init system
+    comm = MPI.COMM_WORLD
+
+    size = comm.Get_size()
+    rank = comm.Get_rank()
+
+    # # init system
     n_stars = int(sys.argv[1])  # 8
     n_processes = int(sys.argv[2])  # 4
-    processes = []
-    for i in range(n_processes):
-        process = Process(n_stars // n_processes)
-        processes.append(process)
 
-    start = timeit.default_timer()
+    # n_stars_steps = [120, 240, 480, 960]
+    # n_processes_steps = [1, 2, 4, 8, 12]
+
+    process = Process(n_stars // n_processes)
+
+    if rank == 0:
+        processes = []
+        start = timeit.default_timer()
+
     # communications
     for iteration in range(n_processes - 1):
         for i in range(n_processes):
-            processes[i - 1].collect(processes[i].get_buffer(penultimate=True if i == n_processes -1 else False))  # -1 python interpret as the last element of the array
+            data_to_send = process.get_buffer(penultimate=True if i == n_processes - 1 else False)
+            buf = bytearray(1 << 20)  # 1 MB buffer, make it larger if needed.
+            MPI.COMM_WORLD.isend(buf, data_to_send, ((rank - 1) % n_processes))
+            req = comm.irecv(source=((rank + 1) % n_processes))
+            data = req.wait()
+            process.collect(data)
 
-    # calculate accelerations
-    for process in processes:
-        process.do_interactions()
+    # interactions
+    comm.Barrier()
+    process.do_interactions()
 
-    stop = timeit.default_timer()
-    print('Time: ', stop - start)
+    if rank == 0:
+        stop = timeit.default_timer()
+        print('n_stars:', n_stars, '; n_processes: ', n_processes, '; time: ', stop - start)
 
     # print result
     # for process in processes:
